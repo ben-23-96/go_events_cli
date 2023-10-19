@@ -24,23 +24,45 @@ func main() {
 		fmt.Printf("error loading envirment variables, need skiddle and ticketmaster api keys.")
 		return
 	}
-	// Define command-line flags
+	// define calendar subcommand
+	calendarCmd := flag.NewFlagSet("calendar", flag.ExitOnError)
+	// calendar subcommand vars
 	var newEvents string
 	var deleteEvent string
 	var displayUpcomingEvents bool
+	// calendar subcommand flags
+	calendarCmd.StringVar(&newEvents, "add-events", "", "Events and the date they are on to be added to calendar, comma seperated list in quotation marks. Example: \"event name, date, event name 2, date 2\"")
+
+	calendarCmd.StringVar(&deleteEvent, "delete-event", "", "Delete a event from the calendar, provided the name of the event as it is stored. Example: \"event name\"")
+
+	calendarCmd.BoolVar(&displayUpcomingEvents, "upcoming-events", false, "Display the upcoming events in the calendar.")
+
+	// define search subcommand
+	eventSearchCmd := flag.NewFlagSet("search", flag.ExitOnError)
+	// search subcommand vars
 	var searchEvents bool
+	// search subcommand flags
+	eventSearchCmd.BoolVar(&searchEvents, "search-events", false, "Search for upcoming events.")
+	// exit if neither subcommand provided
+	if len(os.Args) < 2 {
+		fmt.Println("expected 'calendar' or 'search' subcommands")
+		os.Exit(1)
+	}
+	// call relevant function to handle the arguments of relevant subcommands
+	switch os.Args[1] {
+	case "calendar":
+		calendarCmd.Parse(os.Args[2:])
+		handleCalendarCmd(newEvents, deleteEvent, displayUpcomingEvents)
+	case "search":
+		eventSearchCmd.Parse(os.Args[2:])
+		handleSearchCmd(searchEvents)
+	default:
+		fmt.Println("expected 'foo' or 'bar' subcommands")
+		os.Exit(1)
+	}
+}
 
-	flag.StringVar(&newEvents, "add-events", "", "Events and the date they are on to be added to calendar, comma seperated list in quotation marks. Example: \"event name, date, event name 2, date 2\"")
-
-	flag.StringVar(&deleteEvent, "delete-event", "", "Delete a event from the calendar, provided the name of the event as it is stored. Example: \"event name\"")
-
-	flag.BoolVar(&displayUpcomingEvents, "upcoming-events", false, "Display the upcoming events in the calendar.")
-
-	flag.BoolVar(&searchEvents, "search-events", false, "Search for upcoming events.")
-
-	// Parse the command-line arguments
-	flag.Parse()
-
+func handleCalendarCmd(newEvents string, deleteEvent string, displayUpcomingEvents bool) {
 	// Create a new instance of the CalendarDB struct
 	calendarDB := database.CalendarDB{}
 
@@ -61,7 +83,9 @@ func main() {
 	if displayUpcomingEvents {
 		calendarDB.GetEvents()
 	}
+}
 
+func handleSearchCmd(searchEvents bool) {
 	if searchEvents {
 		eventSearch()
 	}
