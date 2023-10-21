@@ -84,9 +84,16 @@ func handleCalendarCmd(newEvents string, deleteEvent string, displayUpcomingEven
 		calendarDB.DeleteEvent(deleteEvent)
 	}
 
-	// Check if the flag to display upcoming events is set the display the events
+	// Check if the flag to display upcoming events is set then display the events
 	if displayUpcomingEvents {
-		calendarDB.GetEvents()
+		events, err := calendarDB.GetEvents()
+		if err != nil {
+			fmt.Printf("Error retrieving events from database. Err: %s\n", err)
+		}
+		fmt.Print("Upcoming Events:\n\n")
+		for _, event := range events {
+			fmt.Printf("%s    %s\n", event.EventName, event.Date)
+		}
 	}
 }
 
