@@ -1,4 +1,4 @@
-package responsestructs
+package eventsearch
 
 import (
 	"time"
