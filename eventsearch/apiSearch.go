@@ -12,11 +12,12 @@ import (
 )
 
 type ApiSearch struct {
-	Cities     string
-	Genres     string
-	DateFrom   string
-	DateTo     string
-	requestUrl string
+	Cities      string
+	Genres      string
+	DateFrom    string
+	DateTo      string
+	requestUrl  string
+	FoundEvents []Event
 }
 
 func (s *ApiSearch) Search() {
@@ -94,15 +95,14 @@ func (s *ApiSearch) makeRequest() {
 		fmt.Println("Error unmarshaling JSON:", err)
 		return
 	}
-	// Access and use the data
-	fmt.Println("Page info:", resStruct.Page)
+
+	// EXTEND A LIST HERE TO RETURN INSTEAD
 	for _, event := range resStruct.Embedded.Events {
-		fmt.Println("Event: ", event.Name)
-		fmt.Println("city", event.Embedded.Venues[0].City)
-		fmt.Println("date", event.Dates.Start.LocalDate)
-		fmt.Println("tickets", event.URL)
-		fmt.Printf("genre: %s, subgenre: %s\n\n", event.Classifications[0].Segment.Name, event.Classifications[0].Genre.Name)
+		s.FoundEvents = append(s.FoundEvents, event)
 	}
+
+	//s.FoundEvents = append(s.ReturnedEvents, resStruct.Embedded.Events...)
+
 	// check if there are multiple pages to the response
 	if resStruct.Links.Next.Href != "" {
 		// parse the request url

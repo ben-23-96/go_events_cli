@@ -98,6 +98,15 @@ func handleCalendarCmd(newEvents string, deleteEvent string, displayUpcomingEven
 }
 
 func handleSearchCmd(cities string, genres string, dateFromString string, dateToString string) {
+	// Create a new instance of the CalendarDB struct
+	calendarDB := database.CalendarDB{}
+	// Initialize the AWS session and DynamoDB client
+	calendarDB.NewSession()
+	// get calendarEvents from calendar
+	calendarEvents, err := calendarDB.GetEvents()
+	if err != nil {
+		fmt.Printf("Error retrieving events from database. Err: %s\n", err)
+	}
 	// create new instance of api search struct with arguments
 	eventSearch := eventsearch.ApiSearch{
 		Cities:   cities,
@@ -107,4 +116,27 @@ func handleSearchCmd(cities string, genres string, dateFromString string, dateTo
 	}
 	// search for events
 	eventSearch.Search()
+	// Create a map for calendar events
+	calendarMap := make(map[time.Time]string)
+
+	// Iterate through calendar events and populate the map
+	for _, calendarEvent := range calendarEvents {
+		date, _ := time.Parse(time.DateOnly, calendarEvent.Date)
+		calendarMap[date] = calendarEvent.EventName
+	}
+	// Iterate through found events and check if they clash with a calendar event date with a map lookup
+	for _, foundEvent := range eventSearch.FoundEvents {
+		foundEventDate, _ := time.Parse(time.DateOnly, foundEvent.Dates.Start.LocalDate)
+		if eventName, ok := calendarMap[foundEventDate]; !ok {
+			// The date doesn't clash with a date in the calendar, print the event details
+			fmt.Println("Event: ", foundEvent.Name)
+			fmt.Println("city", foundEvent.Embedded.Venues[0].City.Name)
+			fmt.Println("date", foundEvent.Dates.Start.LocalDate)
+			fmt.Println("tickets", foundEvent.URL)
+			fmt.Printf("genre: %s, subgenre: %s\n\n", foundEvent.Classifications[0].Segment.Name, foundEvent.Classifications[0].Genre.Name)
+		} else {
+			// The event date clashes with event in the calendar
+			fmt.Printf("CALENDAR CLASH: %s (Event: %s)\n\n", foundEvent.Dates.Start.LocalDate, eventName)
+		}
+	}
 }
