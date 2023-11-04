@@ -1,40 +1,39 @@
 package eventsearch
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"time"
 )
 
 type ApiSearch struct {
-	Cities      string
-	Genres      string
-	DateFrom    string
-	DateTo      string
-	requestUrl  string
-	FoundEvents []Event
+	Cities             string
+	Genres             string
+	DateFrom           string
+	DateTo             string
+	Ticketmaster       bool
+	Skiddle            bool
+	responseStruct     Response
+	FoundEventsChannel chan []FoundEvent
+	FoundEvents        []FoundEvent
 }
 
 func (s *ApiSearch) Search() {
 
 	s.validateDates()
 
-	apiKey := os.Getenv("ticketmasterAPIKey")
-	// URL of the API or web service you want to request
-	s.requestUrl = fmt.Sprintf("https://app.ticketmaster.com/discovery/v2/events.json?apikey=%s", apiKey)
-	// set query params
-	s.requestUrl += fmt.Sprintf("&city=%s", url.QueryEscape(s.Cities))
-	s.requestUrl += fmt.Sprintf("&classificationName=%s", url.QueryEscape(s.Genres))
-	s.requestUrl += fmt.Sprintf("&startDateTime=%s", url.QueryEscape(s.DateFrom))
-	s.requestUrl += fmt.Sprintf("&endDateTime=%s", url.QueryEscape(s.DateTo))
-	s.requestUrl += fmt.Sprintf("&size=%s", url.QueryEscape("100"))
+	// Create a channel for receiving the results.
+	s.FoundEventsChannel = make(chan []FoundEvent)
 
-	s.makeRequest()
+	ticketmasterUrl, ticketmasterUnmarshallFunc := s.setApi(s.Ticketmaster, false)
+
+	// Launch the method in a goroutine.
+	go s.makeRequest(ticketmasterUrl, ticketmasterUnmarshallFunc)
+
+	s.FoundEvents = <-s.FoundEventsChannel
 
 }
 
@@ -68,9 +67,30 @@ func (s *ApiSearch) validateDates() {
 	s.DateTo = dateTo.Format(time.RFC3339)
 }
 
-func (s *ApiSearch) makeRequest() {
+func (s *ApiSearch) setApi(ticketmaster bool, skiddle bool) (requestUrl string, unmarshallFunction UnmarshalFunction) {
+	s.responseStruct = Response{}
+	if ticketmaster {
+		apiKey := os.Getenv("ticketmasterAPIKey")
+		// set base ticketmaster url
+		requestUrl := fmt.Sprintf("https://app.ticketmaster.com/discovery/v2/events.json?apikey=%s", apiKey)
+		// set query params for api request
+		requestUrl += fmt.Sprintf("&city=%s", url.QueryEscape(s.Cities))
+		requestUrl += fmt.Sprintf("&classificationName=%s", url.QueryEscape(s.Genres))
+		requestUrl += fmt.Sprintf("&startDateTime=%s", url.QueryEscape(s.DateFrom))
+		requestUrl += fmt.Sprintf("&endDateTime=%s", url.QueryEscape(s.DateTo))
+		requestUrl += fmt.Sprintf("&size=%s", url.QueryEscape("100"))
+
+		// set the function used for unmarshalling the json response
+		unmarshalFunction := s.responseStruct.UnmarshalTicketmasterJSON
+
+		return requestUrl, unmarshalFunction
+	}
+	return "", nil
+}
+
+func (s *ApiSearch) makeRequest(requestUrl string, unmarshalFunction UnmarshalFunction) {
 	// Send an HTTP GET request
-	response, err := http.Get(s.requestUrl)
+	response, err := http.Get(requestUrl)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
@@ -89,39 +109,12 @@ func (s *ApiSearch) makeRequest() {
 		fmt.Println("error reading response body:", err)
 		return
 	}
-	// unmarshall the response body json into events struct
-	resStruct := Events{}
-	if err := json.Unmarshal(body, &resStruct); err != nil {
-		fmt.Println("Error unmarshaling JSON:", err)
+	// unmarshall the response into Response struct
+	err = unmarshalFunction(body)
+	if err != nil {
+		fmt.Println("error reading response body:", err)
 		return
 	}
-
-	// EXTEND A LIST HERE TO RETURN INSTEAD
-	for _, event := range resStruct.Embedded.Events {
-		s.FoundEvents = append(s.FoundEvents, event)
-	}
-
-	//s.FoundEvents = append(s.ReturnedEvents, resStruct.Embedded.Events...)
-
-	// check if there are multiple pages to the response
-	if resStruct.Links.Next.Href != "" {
-		// parse the request url
-		u, err := url.Parse(s.requestUrl)
-		if err != nil {
-			fmt.Println("Error parsing URL for next page:", err)
-			return
-		}
-		nextPageNum := resStruct.Page.Number + 1
-		nextPageNumString := strconv.Itoa(nextPageNum)
-		// Get the query parameters
-		queryValues := u.Query()
-		// Set a new value for the "page" parameter
-		queryValues.Set("page", nextPageNumString)
-		// Update the URL's RawQuery with the modified query parameters
-		u.RawQuery = queryValues.Encode()
-		// Reassemble the URL
-		s.requestUrl = u.String()
-		// make request for next page of response
-		s.makeRequest()
-	}
+	// send []FoundEvents to channel
+	s.FoundEventsChannel <- s.responseStruct.Events
 }
