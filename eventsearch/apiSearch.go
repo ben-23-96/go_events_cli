@@ -6,8 +6,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/codingsince1985/geo-golang"
+	"github.com/codingsince1985/geo-golang/opencage"
 )
 
 type ApiSearch struct {
@@ -21,26 +25,35 @@ type ApiSearch struct {
 	FoundEvents        []FoundEvent
 	dateFromSkiddle    string
 	dateToSkiddle      string
+	longitude          string
+	latitude           string
 }
 
 func (s *ApiSearch) Search() []FoundEvent {
 
 	s.validateDates()
-
+	// find lng + lat of cities for use in indivual requests to skiddle API
+	citiesLngLat := s.skiddleLongLat()
+	wgValue := len(citiesLngLat) + 1
 	// Create a channel for receiving the results from api's
-	s.FoundEventsChannel = make(chan []FoundEvent, 2)
+	s.FoundEventsChannel = make(chan []FoundEvent, wgValue)
+	// create wait group
 	wg := &sync.WaitGroup{}
-	wg.Add(2)
+	// set waitgroup limit to number of skiddle requests + ticketmaster request
+	wg.Add(wgValue)
 
-	// create a url and set relevant unmarshalling function for both API's
+	// set ticketmaster url and unmarshalling function, then make request in goroutine (API handles list of cities)
 	ticketmasterUrl, ticketmasterUnmarshallFunc := s.setApi(s.Ticketmaster, false)
-	skiddleUrl, skiddleUnmarshallFunc := s.setApi(false, s.Skiddle)
-
-	// Launch the method in a goroutine.
 	go s.makeRequest(ticketmasterUrl, ticketmasterUnmarshallFunc, wg)
-	go s.makeRequest(skiddleUrl, skiddleUnmarshallFunc, wg)
+	// set skiddle url and unmarshalling function, then make request in goroutine for each city
+	for _, location := range citiesLngLat {
+		s.longitude = fmt.Sprintf("%f", location.Lng)
+		s.latitude = fmt.Sprintf("%f", location.Lat)
+		skiddleUrl, skiddleUnmarshallFunc := s.setApi(false, s.Skiddle)
+		go s.makeRequest(skiddleUrl, skiddleUnmarshallFunc, wg)
+	}
 
-	// Wait for both goroutines to complete.
+	// Wait for goroutines to complete.
 	wg.Wait()
 	// Close the FoundEventsChannel after all goroutines are done.
 	close(s.FoundEventsChannel)
@@ -109,8 +122,8 @@ func (s *ApiSearch) setApi(ticketmaster bool, skiddle bool) (requestUrl string, 
 		// set base skiddle url
 		requestUrl := fmt.Sprintf("https://www.skiddle.com/api/v1/events/search/?api_key=%s", apiKey)
 		// set query params for api request
-		requestUrl += fmt.Sprintf("&longitude=%s", url.QueryEscape("-2.2446"))
-		requestUrl += fmt.Sprintf("&latitude=%s", url.QueryEscape("53.4839"))
+		requestUrl += fmt.Sprintf("&longitude=%s", url.QueryEscape(s.longitude))
+		requestUrl += fmt.Sprintf("&latitude=%s", url.QueryEscape(s.latitude))
 		requestUrl += fmt.Sprintf("&radius=%s", url.QueryEscape("8"))
 		requestUrl += fmt.Sprintf("&minDate=%s", url.QueryEscape(s.dateFromSkiddle))
 		requestUrl += fmt.Sprintf("&maxDate=%s", url.QueryEscape(s.dateToSkiddle))
@@ -156,4 +169,20 @@ func (s *ApiSearch) makeRequest(requestUrl string, unmarshalFunction UnmarshalFu
 	s.FoundEventsChannel <- events
 	// signal done to waitgroup
 	wg.Done()
+}
+
+func (s *ApiSearch) skiddleLongLat() []geo.Location {
+	geocoder := opencage.Geocoder(os.Getenv("opencageAPIKey"))
+	var citiesLngLat []geo.Location
+	// Split the input string by commas
+	citiesList := strings.Split(s.Cities, ",")
+	for _, city := range citiesList {
+		location, _ := geocoder.Geocode(city)
+		if location != nil {
+			citiesLngLat = append(citiesLngLat, *location)
+		} else {
+			fmt.Println("got <nil> location")
+		}
+	}
+	return citiesLngLat
 }
