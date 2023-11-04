@@ -114,9 +114,10 @@ func handleSearchCmd(cities string, genres string, dateFromString string, dateTo
 		DateFrom:     dateFromString,
 		DateTo:       dateToString,
 		Ticketmaster: true,
+		Skiddle:      true,
 	}
 	// search for events
-	eventSearch.Search()
+	foundEvents := eventSearch.Search()
 	// Create a map for calendar events
 	calendarMap := make(map[time.Time]string)
 
@@ -126,7 +127,7 @@ func handleSearchCmd(cities string, genres string, dateFromString string, dateTo
 		calendarMap[date] = calendarEvent.EventName
 	}
 	// Iterate through found events and check if they clash with a calendar event date with a map lookup
-	for _, foundEvent := range eventSearch.FoundEvents {
+	for _, foundEvent := range foundEvents {
 		foundEventDate, _ := time.Parse(time.DateOnly, foundEvent.Date)
 		if eventName, ok := calendarMap[foundEventDate]; !ok {
 			// The date doesn't clash with a date in the calendar, print the event details

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -16,24 +17,41 @@ type ApiSearch struct {
 	DateTo             string
 	Ticketmaster       bool
 	Skiddle            bool
-	responseStruct     Response
 	FoundEventsChannel chan []FoundEvent
 	FoundEvents        []FoundEvent
+	dateFromSkiddle    string
+	dateToSkiddle      string
 }
 
-func (s *ApiSearch) Search() {
+func (s *ApiSearch) Search() []FoundEvent {
 
 	s.validateDates()
 
-	// Create a channel for receiving the results.
-	s.FoundEventsChannel = make(chan []FoundEvent)
+	// Create a channel for receiving the results from api's
+	s.FoundEventsChannel = make(chan []FoundEvent, 2)
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
 
+	// create a url and set relevant unmarshalling function for both API's
 	ticketmasterUrl, ticketmasterUnmarshallFunc := s.setApi(s.Ticketmaster, false)
+	skiddleUrl, skiddleUnmarshallFunc := s.setApi(false, s.Skiddle)
 
 	// Launch the method in a goroutine.
-	go s.makeRequest(ticketmasterUrl, ticketmasterUnmarshallFunc)
+	go s.makeRequest(ticketmasterUrl, ticketmasterUnmarshallFunc, wg)
+	go s.makeRequest(skiddleUrl, skiddleUnmarshallFunc, wg)
 
-	s.FoundEvents = <-s.FoundEventsChannel
+	// Wait for both goroutines to complete.
+	wg.Wait()
+	// Close the FoundEventsChannel after all goroutines are done.
+	close(s.FoundEventsChannel)
+
+	// Collect results from the channel.
+	var foundEvents []FoundEvent
+	for events := range s.FoundEventsChannel {
+		foundEvents = append(foundEvents, events...)
+	}
+
+	return foundEvents
 
 }
 
@@ -65,10 +83,12 @@ func (s *ApiSearch) validateDates() {
 	// Format the date as a string in "YYYY-MM-DDT00:00:00Z" format
 	s.DateFrom = dateFrom.Format(time.RFC3339)
 	s.DateTo = dateTo.Format(time.RFC3339)
+	// Format the date as a string in "YYYY-MM-DD" format for skiddle
+	s.dateFromSkiddle = dateFrom.Format(time.DateOnly)
+	s.dateToSkiddle = dateTo.Format(time.DateOnly)
 }
 
 func (s *ApiSearch) setApi(ticketmaster bool, skiddle bool) (requestUrl string, unmarshallFunction UnmarshalFunction) {
-	s.responseStruct = Response{}
 	if ticketmaster {
 		apiKey := os.Getenv("ticketmasterAPIKey")
 		// set base ticketmaster url
@@ -81,14 +101,31 @@ func (s *ApiSearch) setApi(ticketmaster bool, skiddle bool) (requestUrl string, 
 		requestUrl += fmt.Sprintf("&size=%s", url.QueryEscape("100"))
 
 		// set the function used for unmarshalling the json response
-		unmarshalFunction := s.responseStruct.UnmarshalTicketmasterJSON
+		unmarshalFunction := UnmarshalTicketmasterJSON
 
+		return requestUrl, unmarshalFunction
+	} else if skiddle {
+		apiKey := os.Getenv("skiddleAPIKey")
+		// set base skiddle url
+		requestUrl := fmt.Sprintf("https://www.skiddle.com/api/v1/events/search/?api_key=%s", apiKey)
+		// set query params for api request
+		requestUrl += fmt.Sprintf("&longitude=%s", url.QueryEscape("-2.2446"))
+		requestUrl += fmt.Sprintf("&latitude=%s", url.QueryEscape("53.4839"))
+		requestUrl += fmt.Sprintf("&radius=%s", url.QueryEscape("8"))
+		requestUrl += fmt.Sprintf("&minDate=%s", url.QueryEscape(s.dateFromSkiddle))
+		requestUrl += fmt.Sprintf("&maxDate=%s", url.QueryEscape(s.dateToSkiddle))
+		requestUrl += fmt.Sprintf("&description=%s", url.QueryEscape("1"))
+		//requestUrl += fmt.Sprintf("&limit=%s", url.QueryEscape("100"))
+
+		// set the function used for unmarshalling the json response
+		unmarshalFunction := UnmarshalSkiddleJSON
+		fmt.Println(requestUrl)
 		return requestUrl, unmarshalFunction
 	}
 	return "", nil
 }
 
-func (s *ApiSearch) makeRequest(requestUrl string, unmarshalFunction UnmarshalFunction) {
+func (s *ApiSearch) makeRequest(requestUrl string, unmarshalFunction UnmarshalFunction, wg *sync.WaitGroup) {
 	// Send an HTTP GET request
 	response, err := http.Get(requestUrl)
 	if err != nil {
@@ -109,12 +146,14 @@ func (s *ApiSearch) makeRequest(requestUrl string, unmarshalFunction UnmarshalFu
 		fmt.Println("error reading response body:", err)
 		return
 	}
-	// unmarshall the response into Response struct
-	err = unmarshalFunction(body)
+	// unmarshall the response into []FoundEvents
+	events, err := unmarshalFunction(body)
 	if err != nil {
 		fmt.Println("error reading response body:", err)
 		return
 	}
 	// send []FoundEvents to channel
-	s.FoundEventsChannel <- s.responseStruct.Events
+	s.FoundEventsChannel <- events
+	// signal done to waitgroup
+	wg.Done()
 }

@@ -5,10 +5,6 @@ import (
 	"fmt"
 )
 
-type Response struct {
-	Events []FoundEvent
-}
-
 type FoundEvent struct {
 	Name     string
 	Date     string
@@ -18,18 +14,20 @@ type FoundEvent struct {
 	Subgenre string
 }
 
-type UnmarshalFunction func([]byte) error
+type UnmarshalFunction func([]byte) ([]FoundEvent, error)
 
-func (res *Response) UnmarshalTicketmasterJSON(b []byte) error {
+func UnmarshalTicketmasterJSON(b []byte) ([]FoundEvent, error) {
 
 	ticketmasterRes := TicketmasterResponse{}
 	if err := json.Unmarshal(b, &ticketmasterRes); err != nil {
 		fmt.Println("Error unmarshaling JSON:", err)
-		return err
+		return nil, err
 	}
 
+	var foundEvents []FoundEvent
+
 	for _, event := range ticketmasterRes.Embedded.Events {
-		res.Events = append(res.Events, FoundEvent{
+		foundEvents = append(foundEvents, FoundEvent{
 			Name:     event.Name,
 			Date:     event.Dates.Start.LocalDate,
 			City:     event.Embedded.Venues[0].City.Name,
@@ -39,7 +37,31 @@ func (res *Response) UnmarshalTicketmasterJSON(b []byte) error {
 		})
 	}
 
-	return nil
+	return foundEvents, nil
+}
+
+func UnmarshalSkiddleJSON(b []byte) ([]FoundEvent, error) {
+
+	skiddleRes := SkiddleResponse{}
+	if err := json.Unmarshal(b, &skiddleRes); err != nil {
+		fmt.Println("Error unmarshaling JSON:", err)
+		return nil, err
+	}
+
+	var foundEvents []FoundEvent
+
+	for _, event := range skiddleRes.Results {
+		foundEvents = append(foundEvents, FoundEvent{
+			Name:    event.EventName,
+			Date:    event.Date,
+			City:    event.Venue.Town,
+			Tickets: event.Link,
+			Genre:   event.EventCode,
+			//Subgenre: event.Genres[0].Name,
+		})
+	}
+
+	return foundEvents, nil
 }
 
 type TicketmasterResponse struct {
@@ -71,4 +93,19 @@ type TicketmasterEvent struct {
 			Name string `json:"name"`
 		} `json:"genre"`
 	} `json:"classifications"`
+}
+
+type SkiddleResponse struct {
+	Results []struct {
+		EventCode string `json:"EventCode"`
+		EventName string `json:"eventname"`
+		Venue     struct {
+			Town string `json:"town"`
+		} `json:"venue"`
+		Link   string `json:"link"`
+		Date   string `json:"date"`
+		Genres []struct {
+			Name string `json:"name"`
+		} `json:"genres"`
+	} `json:"results"`
 }
