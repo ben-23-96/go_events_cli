@@ -7,4 +7,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 )
 
-require github.com/jmespath/go-jmespath v0.4.0 // indirect
+require (
+	github.com/codingsince1985/geo-golang v1.8.3 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
+)
