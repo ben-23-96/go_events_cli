@@ -109,10 +109,11 @@ func handleSearchCmd(cities string, genres string, dateFromString string, dateTo
 	}
 	// create new instance of api search struct with arguments
 	eventSearch := eventsearch.ApiSearch{
-		Cities:   cities,
-		Genres:   genres,
-		DateFrom: dateFromString,
-		DateTo:   dateToString,
+		Cities:       cities,
+		Genres:       genres,
+		DateFrom:     dateFromString,
+		DateTo:       dateToString,
+		Ticketmaster: true,
 	}
 	// search for events
 	eventSearch.Search()
@@ -126,17 +127,17 @@ func handleSearchCmd(cities string, genres string, dateFromString string, dateTo
 	}
 	// Iterate through found events and check if they clash with a calendar event date with a map lookup
 	for _, foundEvent := range eventSearch.FoundEvents {
-		foundEventDate, _ := time.Parse(time.DateOnly, foundEvent.Dates.Start.LocalDate)
+		foundEventDate, _ := time.Parse(time.DateOnly, foundEvent.Date)
 		if eventName, ok := calendarMap[foundEventDate]; !ok {
 			// The date doesn't clash with a date in the calendar, print the event details
 			fmt.Println("Event: ", foundEvent.Name)
-			fmt.Println("city", foundEvent.Embedded.Venues[0].City.Name)
-			fmt.Println("date", foundEvent.Dates.Start.LocalDate)
-			fmt.Println("tickets", foundEvent.URL)
-			fmt.Printf("genre: %s, subgenre: %s\n\n", foundEvent.Classifications[0].Segment.Name, foundEvent.Classifications[0].Genre.Name)
+			fmt.Println("city", foundEvent.City)
+			fmt.Println("date", foundEvent.Date)
+			fmt.Println("tickets", foundEvent.Tickets)
+			fmt.Printf("genre: %s, subgenre: %s\n\n", foundEvent.Genre, foundEvent.Subgenre)
 		} else {
 			// The event date clashes with event in the calendar
-			fmt.Printf("CALENDAR CLASH: %s (Event: %s)\n\n", foundEvent.Dates.Start.LocalDate, eventName)
+			fmt.Printf("CALENDAR CLASH: %s (Event: %s)\n\n", foundEvent.Date, eventName)
 		}
 	}
 }
