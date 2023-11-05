@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -68,6 +69,11 @@ func (s *ApiSearch) Search() []FoundEvent {
 	for events := range s.FoundEventsChannel {
 		foundEvents = append(foundEvents, events...)
 	}
+
+	//slices.SortFunc(foundEvents, func(a, b T) int { return a.Date.Compare(B.Date) })
+	sort.Slice(foundEvents, func(i, j int) bool {
+		return foundEvents[i].Date.Before(foundEvents[j].Date)
+	})
 
 	return foundEvents
 

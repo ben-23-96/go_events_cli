@@ -128,17 +128,18 @@ func handleSearchCmd(cities string, genres string, dateFromString string, dateTo
 	}
 	// Iterate through found events and check if they clash with a calendar event date with a map lookup
 	for _, foundEvent := range foundEvents {
-		foundEventDate, _ := time.Parse(time.DateOnly, foundEvent.Date)
-		if eventName, ok := calendarMap[foundEventDate]; !ok {
+		// format date to string for print
+		foundEventDate := foundEvent.Date.Format(time.DateOnly)
+		if eventName, ok := calendarMap[foundEvent.Date]; !ok {
 			// The date doesn't clash with a date in the calendar, print the event details
 			fmt.Println("Event: ", foundEvent.Name)
 			fmt.Println("city", foundEvent.City)
-			fmt.Println("date", foundEvent.Date)
+			fmt.Println("date", foundEventDate)
 			fmt.Println("tickets", foundEvent.Tickets)
 			fmt.Printf("genre: %s, subgenre: %s\n\n", foundEvent.Genre, foundEvent.Subgenre)
 		} else {
 			// The event date clashes with event in the calendar
-			fmt.Printf("CALENDAR CLASH: %s (Event: %s)\n\n", foundEvent.Date, eventName)
+			fmt.Printf("CALENDAR CLASH: %s (Event: %s)\n\n", foundEventDate, eventName)
 		}
 	}
 }
