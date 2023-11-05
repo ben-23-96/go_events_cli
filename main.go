@@ -62,7 +62,7 @@ func main() {
 		eventSearchCmd.Parse(os.Args[2:])
 		handleSearchCmd(cities, genres, dateFrom, dateTo)
 	default:
-		fmt.Println("expected 'foo' or 'bar' subcommands")
+		fmt.Println("expected 'calendar' or 'search' subcommands")
 		os.Exit(1)
 	}
 }

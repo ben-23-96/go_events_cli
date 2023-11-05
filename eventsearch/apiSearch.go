@@ -24,8 +24,7 @@ type ApiSearch struct {
 	DateTo             string
 	Ticketmaster       bool
 	Skiddle            bool
-	FoundEventsChannel chan []FoundEvent
-	FoundEvents        []FoundEvent
+	foundEventsChannel chan []FoundEvent
 	dateFromSkiddle    string
 	dateToSkiddle      string
 	longitude          string
@@ -35,14 +34,15 @@ type ApiSearch struct {
 }
 
 func (s *ApiSearch) Search() []FoundEvent {
-
+	// check dates are in valid format and time
 	s.validateDates()
+	// find best match from user input genres to avaible genre params for skiddle and ticketmaster API's
 	s.matchGenres()
 	// find lng + lat of cities for use in indivual requests to skiddle API
 	citiesLngLat := s.skiddleLongLat()
 	wgValue := len(citiesLngLat) + 1
 	// Create a channel for receiving the results from api's
-	s.FoundEventsChannel = make(chan []FoundEvent, wgValue)
+	s.foundEventsChannel = make(chan []FoundEvent, wgValue)
 	// create wait group
 	wg := &sync.WaitGroup{}
 	// set waitgroup limit to number of skiddle requests + ticketmaster request
@@ -62,11 +62,11 @@ func (s *ApiSearch) Search() []FoundEvent {
 	// Wait for goroutines to complete.
 	wg.Wait()
 	// Close the FoundEventsChannel after all goroutines are done.
-	close(s.FoundEventsChannel)
+	close(s.foundEventsChannel)
 
 	// Collect results from the channel.
 	var foundEvents []FoundEvent
-	for events := range s.FoundEventsChannel {
+	for events := range s.foundEventsChannel {
 		foundEvents = append(foundEvents, events...)
 	}
 
@@ -126,7 +126,7 @@ func (s *ApiSearch) setApi(ticketmaster bool, skiddle bool) (requestUrl string, 
 
 		// set the function used for unmarshalling the json response
 		unmarshalFunction := UnmarshalTicketmasterJSON
-
+		fmt.Println(requestUrl)
 		return requestUrl, unmarshalFunction
 	} else if skiddle {
 		apiKey := os.Getenv("skiddleAPIKey")
@@ -138,10 +138,13 @@ func (s *ApiSearch) setApi(ticketmaster bool, skiddle bool) (requestUrl string, 
 		requestUrl += fmt.Sprintf("&radius=%s", url.QueryEscape("8"))
 		requestUrl += fmt.Sprintf("&minDate=%s", url.QueryEscape(s.dateFromSkiddle))
 		requestUrl += fmt.Sprintf("&maxDate=%s", url.QueryEscape(s.dateToSkiddle))
-		requestUrl += fmt.Sprintf("&g=%s", url.QueryEscape(s.skiddleGenreID))
 		requestUrl += fmt.Sprintf("&description=%s", url.QueryEscape("1"))
+		if s.skiddleGenreID != "" {
+			requestUrl += fmt.Sprintf("&g=%s", url.QueryEscape(s.skiddleGenreID))
+		}
 		//requestUrl += fmt.Sprintf("&limit=%s", url.QueryEscape("100"))
-
+		fmt.Printf("\n\n%s\n\n", requestUrl)
+		fmt.Println(s.skiddleGenreID)
 		// set the function used for unmarshalling the json response
 		unmarshalFunction := UnmarshalSkiddleJSON
 
@@ -178,7 +181,7 @@ func (s *ApiSearch) makeRequest(requestUrl string, unmarshalFunction UnmarshalFu
 		return
 	}
 	// send []FoundEvents to channel
-	s.FoundEventsChannel <- events
+	s.foundEventsChannel <- events
 	// signal done to waitgroup
 	wg.Done()
 }
