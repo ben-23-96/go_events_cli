@@ -212,23 +212,44 @@ func (s *ApiSearch) matchGenres() {
 		panic(err)
 	}
 
-	// find the ticketmaster genre that matches user input closest set to ticketmasterGenre attribute
-	s.ticketmasterGenre, _ = edlib.FuzzySearch(s.Genres, genres.Ticketmaster.Genres, edlib.Levenshtein)
+	// Split the input string by commas
+	userGenresList := strings.Split(s.Genres, ",")
 
 	var stringSimilarity float32
+	var bestMatchSkiddleID string
 	stringSimilarity = 0.0
-	// find the skiddle genre that matches user input closest set its ID to skiddleGenreID sttribute
-	for _, skiddleGenre := range genres.Skiddle.Genres {
-		res, _ := edlib.StringsSimilarity(s.Genres, skiddleGenre.Name, edlib.Levenshtein)
-		if res == 1 {
-			s.skiddleGenreID = skiddleGenre.ID
-			break
+	// iterate over genre inputs
+	for _, userGenre := range userGenresList {
+		// find the ticketmaster genre that matches user input closest add to ticketmasterGenre attribute as comma seperated list
+		bestMatchTicketmasterGenre, _ := edlib.FuzzySearch(userGenre, genres.Ticketmaster.Genres, edlib.Levenshtein)
+		if s.ticketmasterGenre != "" {
+			s.ticketmasterGenre = s.ticketmasterGenre + "," + bestMatchTicketmasterGenre
+		} else {
+			s.ticketmasterGenre = bestMatchTicketmasterGenre
 		}
-		if res > stringSimilarity {
-			stringSimilarity = res
-			s.skiddleGenreID = skiddleGenre.ID
-		}
-	}
 
-	fmt.Println(stringSimilarity)
+		// find the skiddle genre that matches user input closest set its ID to skiddleGenreID sttribute
+		for _, skiddleGenre := range genres.Skiddle.Genres {
+			similarityRes, _ := edlib.StringsSimilarity(userGenre, skiddleGenre.Name, edlib.Levenshtein)
+			// if strings match exactly set best match break loop
+			if similarityRes == 1 {
+				bestMatchSkiddleID = skiddleGenre.ID
+				break
+			}
+			// current best match
+			if similarityRes > stringSimilarity {
+				stringSimilarity = similarityRes
+				bestMatchSkiddleID = skiddleGenre.ID
+			}
+		}
+		// add found genre id as part of comma seperated list to skiddleGenreID attribute and reset stringSimilarity var
+		if s.skiddleGenreID != "" {
+			s.skiddleGenreID = s.skiddleGenreID + "," + bestMatchSkiddleID
+		} else {
+			s.skiddleGenreID = bestMatchSkiddleID
+		}
+		stringSimilarity = 0.0
+		bestMatchSkiddleID = ""
+	}
+	fmt.Println(s.ticketmasterGenre)
 }
