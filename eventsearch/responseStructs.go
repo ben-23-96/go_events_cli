@@ -109,3 +109,15 @@ type SkiddleResponse struct {
 		} `json:"genres"`
 	} `json:"results"`
 }
+
+type GenreJSON struct {
+	Ticketmaster struct {
+		Genres []string `json:"Genres"`
+	} `json:"Ticketmaster"`
+	Skiddle struct {
+		Genres []struct {
+			Name string `json:"Name"`
+			ID   string `json:"ID"`
+		} `json:"Genres"`
+	} `json:"Skiddle"`
+}
