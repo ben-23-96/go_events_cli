@@ -3,11 +3,12 @@ package eventsearch
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 type FoundEvent struct {
 	Name     string
-	Date     string
+	Date     time.Time
 	City     string
 	Tickets  string
 	Genre    string
@@ -27,9 +28,10 @@ func UnmarshalTicketmasterJSON(b []byte) ([]FoundEvent, error) {
 	var foundEvents []FoundEvent
 
 	for _, event := range ticketmasterRes.Embedded.Events {
+		date, _ := time.Parse(time.DateOnly, event.Dates.Start.LocalDate)
 		foundEvents = append(foundEvents, FoundEvent{
 			Name:     event.Name,
-			Date:     event.Dates.Start.LocalDate,
+			Date:     date,
 			City:     event.Embedded.Venues[0].City.Name,
 			Tickets:  event.URL,
 			Genre:    event.Classifications[0].Segment.Name,
@@ -51,9 +53,10 @@ func UnmarshalSkiddleJSON(b []byte) ([]FoundEvent, error) {
 	var foundEvents []FoundEvent
 
 	for _, event := range skiddleRes.Results {
+		date, _ := time.Parse(time.DateOnly, event.Date)
 		foundEvents = append(foundEvents, FoundEvent{
 			Name:    event.EventName,
-			Date:    event.Date,
+			Date:    date,
 			City:    event.Venue.Town,
 			Tickets: event.Link,
 			Genre:   event.EventCode,
