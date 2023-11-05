@@ -1,6 +1,7 @@
 package eventsearch
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/codingsince1985/geo-golang"
 	"github.com/codingsince1985/geo-golang/opencage"
+	"github.com/hbollon/go-edlib"
 )
 
 type ApiSearch struct {
@@ -27,11 +29,14 @@ type ApiSearch struct {
 	dateToSkiddle      string
 	longitude          string
 	latitude           string
+	ticketmasterGenre  string
+	skiddleGenreID     string
 }
 
 func (s *ApiSearch) Search() []FoundEvent {
 
 	s.validateDates()
+	s.matchGenres()
 	// find lng + lat of cities for use in indivual requests to skiddle API
 	citiesLngLat := s.skiddleLongLat()
 	wgValue := len(citiesLngLat) + 1
@@ -108,7 +113,7 @@ func (s *ApiSearch) setApi(ticketmaster bool, skiddle bool) (requestUrl string, 
 		requestUrl := fmt.Sprintf("https://app.ticketmaster.com/discovery/v2/events.json?apikey=%s", apiKey)
 		// set query params for api request
 		requestUrl += fmt.Sprintf("&city=%s", url.QueryEscape(s.Cities))
-		requestUrl += fmt.Sprintf("&classificationName=%s", url.QueryEscape(s.Genres))
+		requestUrl += fmt.Sprintf("&classificationName=%s", url.QueryEscape(s.ticketmasterGenre))
 		requestUrl += fmt.Sprintf("&startDateTime=%s", url.QueryEscape(s.DateFrom))
 		requestUrl += fmt.Sprintf("&endDateTime=%s", url.QueryEscape(s.DateTo))
 		requestUrl += fmt.Sprintf("&size=%s", url.QueryEscape("100"))
@@ -127,12 +132,13 @@ func (s *ApiSearch) setApi(ticketmaster bool, skiddle bool) (requestUrl string, 
 		requestUrl += fmt.Sprintf("&radius=%s", url.QueryEscape("8"))
 		requestUrl += fmt.Sprintf("&minDate=%s", url.QueryEscape(s.dateFromSkiddle))
 		requestUrl += fmt.Sprintf("&maxDate=%s", url.QueryEscape(s.dateToSkiddle))
+		requestUrl += fmt.Sprintf("&g=%s", url.QueryEscape(s.skiddleGenreID))
 		requestUrl += fmt.Sprintf("&description=%s", url.QueryEscape("1"))
 		//requestUrl += fmt.Sprintf("&limit=%s", url.QueryEscape("100"))
 
 		// set the function used for unmarshalling the json response
 		unmarshalFunction := UnmarshalSkiddleJSON
-		fmt.Println(requestUrl)
+
 		return requestUrl, unmarshalFunction
 	}
 	return "", nil
@@ -172,17 +178,51 @@ func (s *ApiSearch) makeRequest(requestUrl string, unmarshalFunction UnmarshalFu
 }
 
 func (s *ApiSearch) skiddleLongLat() []geo.Location {
+	// geocoder SDK for finding lng and lat of city
 	geocoder := opencage.Geocoder(os.Getenv("opencageAPIKey"))
 	var citiesLngLat []geo.Location
 	// Split the input string by commas
 	citiesList := strings.Split(s.Cities, ",")
+	// find long and lat of each city append to slice
 	for _, city := range citiesList {
 		location, _ := geocoder.Geocode(city)
 		if location != nil {
 			citiesLngLat = append(citiesLngLat, *location)
-		} else {
-			fmt.Println("got <nil> location")
 		}
 	}
 	return citiesLngLat
+}
+
+func (s *ApiSearch) matchGenres() {
+	// Read the JSON data from the file
+	genresJSON, err := os.ReadFile("eventsearch/genres.json")
+	if err != nil {
+		panic(err)
+	}
+
+	// Unmarshal the JSON data into the Segments structure
+	var genres GenreJSON
+	if err := json.Unmarshal(genresJSON, &genres); err != nil {
+		panic(err)
+	}
+
+	// find the ticketmaster genre that matches user input closest set to ticketmasterGenre attribute
+	s.ticketmasterGenre, _ = edlib.FuzzySearch(s.Genres, genres.Ticketmaster.Genres, edlib.Levenshtein)
+
+	var stringSimilarity float32
+	stringSimilarity = 0.0
+	// find the skiddle genre that matches user input closest set its ID to skiddleGenreID sttribute
+	for _, skiddleGenre := range genres.Skiddle.Genres {
+		res, _ := edlib.StringsSimilarity(s.Genres, skiddleGenre.Name, edlib.Levenshtein)
+		if res == 1 {
+			s.skiddleGenreID = skiddleGenre.ID
+			break
+		}
+		if res > stringSimilarity {
+			stringSimilarity = res
+			s.skiddleGenreID = skiddleGenre.ID
+		}
+	}
+
+	fmt.Println(stringSimilarity)
 }
