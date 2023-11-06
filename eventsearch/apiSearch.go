@@ -33,6 +33,11 @@ type ApiSearch struct {
 	skiddleGenreID     string
 }
 
+/*
+Searches for events from the ticketmaster and skiddle API's using parameter provided in APISearch{}
+Returns:
+- []FoundEvent: A slice of FoundEvent{} that contain all relevant information of events returned from the API's.
+*/
 func (s *ApiSearch) Search() []FoundEvent {
 	// check dates are in valid format and time
 	s.validateDates()
@@ -79,6 +84,9 @@ func (s *ApiSearch) Search() []FoundEvent {
 
 }
 
+/*
+Validates the user provided dateFrom and DateTo strings are in a valid dates and formats them in the required way to be used as query params in the API requests.
+*/
 func (s *ApiSearch) validateDates() {
 	// Check date in correct format
 	dateFrom, err := time.Parse(time.DateOnly, s.DateFrom)
@@ -112,6 +120,94 @@ func (s *ApiSearch) validateDates() {
 	s.dateToSkiddle = dateTo.Format(time.DateOnly)
 }
 
+/*
+Uses the levenshtien algorithm to find the best match of the genres provided in the Genres attribute, and the accepted format of that genre to be sent as a query param to the relevant API. Accepted formats are stored in genres.json. Skiddle API requires genreID and ticketmaster API requires spelling + wording to be the same as exspected. Sets the ticketmasterGenres and skiddleGenreID attributes as string comma seperated lists.
+*/
+func (s *ApiSearch) matchGenres() {
+	// Read the JSON data from the genres.json file
+	genresJSON, err := os.ReadFile("eventsearch/genres.json")
+	if err != nil {
+		panic(err)
+	}
+
+	// Unmarshal the JSON data into the genres structure
+	var genres GenreJSON
+	if err := json.Unmarshal(genresJSON, &genres); err != nil {
+		panic(err)
+	}
+
+	// Split the user input string by commas
+	userGenresList := strings.Split(s.Genres, ",")
+
+	var stringSimilarity float32
+	var bestMatchSkiddleID string
+	stringSimilarity = 0.0
+	// iterate over genre inputs
+	for _, userGenre := range userGenresList {
+		// find the ticketmaster genre that matches user input closest add to ticketmasterGenre attribute as comma seperated list
+		bestMatchTicketmasterGenre, _ := edlib.FuzzySearch(userGenre, genres.Ticketmaster.Genres, edlib.Levenshtein)
+		if s.ticketmasterGenre != "" {
+			s.ticketmasterGenre = s.ticketmasterGenre + "," + bestMatchTicketmasterGenre
+		} else {
+			s.ticketmasterGenre = bestMatchTicketmasterGenre
+		}
+
+		// find the skiddle genre that matches user input closest set its ID to skiddleGenreID sttribute
+		for _, skiddleGenre := range genres.Skiddle.Genres {
+			similarityRes, _ := edlib.StringsSimilarity(userGenre, skiddleGenre.Name, edlib.Levenshtein)
+			// if strings match exactly set best match break loop
+			if similarityRes == 1 {
+				bestMatchSkiddleID = skiddleGenre.ID
+				break
+			}
+			// current best match
+			if similarityRes > stringSimilarity {
+				stringSimilarity = similarityRes
+				bestMatchSkiddleID = skiddleGenre.ID
+			}
+		}
+		// add found genre id as part of comma seperated list to skiddleGenreID attribute and reset stringSimilarity and best match vars
+		if s.skiddleGenreID != "" {
+			s.skiddleGenreID = s.skiddleGenreID + "," + bestMatchSkiddleID
+		} else {
+			s.skiddleGenreID = bestMatchSkiddleID
+		}
+		stringSimilarity = 0.0
+		bestMatchSkiddleID = ""
+	}
+	fmt.Println(s.ticketmasterGenre)
+}
+
+/*
+Uses the opencage API to find longitide and latitude of cities provided in Cities attribute.
+Returns:
+- []geo.Location: slice containing the geo data on the provided cities.
+*/
+func (s *ApiSearch) skiddleLongLat() []geo.Location {
+	// geocoder SDK for finding lng and lat of city
+	geocoder := opencage.Geocoder(os.Getenv("opencageAPIKey"))
+	var citiesLngLat []geo.Location
+	// Split the input string by commas
+	citiesList := strings.Split(s.Cities, ",")
+	// find long and lat of each city append to slice
+	for _, city := range citiesList {
+		location, _ := geocoder.Geocode(city)
+		if location != nil {
+			citiesLngLat = append(citiesLngLat, *location)
+		}
+	}
+	return citiesLngLat
+}
+
+/*
+Creates a url with the user provided parameters for either ticketmaster or skiddle API, sets the relevant function to be used for unmarshall the API response.
+Parameters:
+- ticketmaster: bool: if true set for ticketmaster API.
+- skiddle: bool: if true set for skiddle API.const
+Returns:
+- requestUrl: string: url to be used in a API request with relevant query parameters.
+- unmarshallFunction: a function used to unmarshall the response json for a particular API request.
+*/
 func (s *ApiSearch) setApi(ticketmaster bool, skiddle bool) (requestUrl string, unmarshallFunction UnmarshalFunction) {
 	if ticketmaster {
 		apiKey := os.Getenv("ticketmasterAPIKey")
@@ -153,6 +249,13 @@ func (s *ApiSearch) setApi(ticketmaster bool, skiddle bool) (requestUrl string, 
 	return "", nil
 }
 
+/*
+Makes a request to a API, unmarshalls the response into []FoundEvent and sends the unmarshalled data back to foundEventsChannel.
+Parameters:
+- requestUrl: string: the url to make the request to.
+- unmarshallFunction: the function used to unmarsshall the API json response.const
+- wg: waitGroup: the wait group of the goroutine
+*/
 func (s *ApiSearch) makeRequest(requestUrl string, unmarshalFunction UnmarshalFunction, wg *sync.WaitGroup) {
 	// Send an HTTP GET request
 	response, err := http.Get(requestUrl)
@@ -184,75 +287,4 @@ func (s *ApiSearch) makeRequest(requestUrl string, unmarshalFunction UnmarshalFu
 	s.foundEventsChannel <- events
 	// signal done to waitgroup
 	wg.Done()
-}
-
-func (s *ApiSearch) skiddleLongLat() []geo.Location {
-	// geocoder SDK for finding lng and lat of city
-	geocoder := opencage.Geocoder(os.Getenv("opencageAPIKey"))
-	var citiesLngLat []geo.Location
-	// Split the input string by commas
-	citiesList := strings.Split(s.Cities, ",")
-	// find long and lat of each city append to slice
-	for _, city := range citiesList {
-		location, _ := geocoder.Geocode(city)
-		if location != nil {
-			citiesLngLat = append(citiesLngLat, *location)
-		}
-	}
-	return citiesLngLat
-}
-
-func (s *ApiSearch) matchGenres() {
-	// Read the JSON data from the file
-	genresJSON, err := os.ReadFile("eventsearch/genres.json")
-	if err != nil {
-		panic(err)
-	}
-
-	// Unmarshal the JSON data into the Segments structure
-	var genres GenreJSON
-	if err := json.Unmarshal(genresJSON, &genres); err != nil {
-		panic(err)
-	}
-
-	// Split the input string by commas
-	userGenresList := strings.Split(s.Genres, ",")
-
-	var stringSimilarity float32
-	var bestMatchSkiddleID string
-	stringSimilarity = 0.0
-	// iterate over genre inputs
-	for _, userGenre := range userGenresList {
-		// find the ticketmaster genre that matches user input closest add to ticketmasterGenre attribute as comma seperated list
-		bestMatchTicketmasterGenre, _ := edlib.FuzzySearch(userGenre, genres.Ticketmaster.Genres, edlib.Levenshtein)
-		if s.ticketmasterGenre != "" {
-			s.ticketmasterGenre = s.ticketmasterGenre + "," + bestMatchTicketmasterGenre
-		} else {
-			s.ticketmasterGenre = bestMatchTicketmasterGenre
-		}
-
-		// find the skiddle genre that matches user input closest set its ID to skiddleGenreID sttribute
-		for _, skiddleGenre := range genres.Skiddle.Genres {
-			similarityRes, _ := edlib.StringsSimilarity(userGenre, skiddleGenre.Name, edlib.Levenshtein)
-			// if strings match exactly set best match break loop
-			if similarityRes == 1 {
-				bestMatchSkiddleID = skiddleGenre.ID
-				break
-			}
-			// current best match
-			if similarityRes > stringSimilarity {
-				stringSimilarity = similarityRes
-				bestMatchSkiddleID = skiddleGenre.ID
-			}
-		}
-		// add found genre id as part of comma seperated list to skiddleGenreID attribute and reset stringSimilarity var
-		if s.skiddleGenreID != "" {
-			s.skiddleGenreID = s.skiddleGenreID + "," + bestMatchSkiddleID
-		} else {
-			s.skiddleGenreID = bestMatchSkiddleID
-		}
-		stringSimilarity = 0.0
-		bestMatchSkiddleID = ""
-	}
-	fmt.Println(s.ticketmasterGenre)
 }

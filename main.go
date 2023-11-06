@@ -67,6 +67,9 @@ func main() {
 	}
 }
 
+/*
+Handles the calendar subcommand. Adds, deletes and displays events from the calendar. Calendar is a dynamodb table.
+*/
 func handleCalendarCmd(newEvents string, deleteEvent string, displayUpcomingEvents bool) {
 	// Create a new instance of the CalendarDB struct
 	calendarDB := database.CalendarDB{}
@@ -97,6 +100,9 @@ func handleCalendarCmd(newEvents string, deleteEvent string, displayUpcomingEven
 	}
 }
 
+/*
+Handles the search subcommand. Makes requests to the ticketmaster and skiddle API's searching for events using the paramters provided by the user in the CLI flags. Prints the found events in terminal checking if they do not clash with events in the calendar.
+*/
 func handleSearchCmd(cities string, genres string, dateFromString string, dateToString string) {
 	// Create a new instance of the CalendarDB struct
 	calendarDB := database.CalendarDB{}
