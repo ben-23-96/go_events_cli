@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,8 +15,8 @@ import (
 
 // CalendarEvent represents an event to be stored in the calendar.
 type CalendarEvent struct {
-	EventName string
-	Date      string
+	EventName string `json:"EventName"`
+	Date      string `json:"Date"`
 }
 
 // CalendarDB is a data structure that holds a reference to a DynamoDB client.
@@ -111,9 +112,9 @@ func (c *CalendarDB) DeleteEvent(eventName string) {
 }
 
 /*
-GetEvents retrieves and prints all events from the Calendar table in DynamoDB.
+GetEvents retrieves and returns events on or after current date from the Calendar table in DynamoDB.
 */
-func (c *CalendarDB) GetEvents() {
+func (c *CalendarDB) GetEvents() ([]CalendarEvent, error) {
 	// Perform a scan operation to retrieve all items from the Calendar table
 	result, err := c.db.Scan(&dynamodb.ScanInput{
 		TableName: aws.String("Calendar"),
@@ -121,9 +122,12 @@ func (c *CalendarDB) GetEvents() {
 
 	if err != nil {
 		fmt.Printf("Failed to fetch upcoming events from calendar: %s\n", err)
-		return
+		return nil, err
 	}
-	fmt.Println("Upcoming Events:")
+	// create slice of calendar event structs
+	events := []CalendarEvent{}
+
+	currentDate := time.Now().Truncate(24 * time.Hour)
 	// Iterate through the retrieved items and unmarshal them into CalendarEvent structs
 	for _, i := range result.Items {
 		event := CalendarEvent{}
@@ -131,10 +135,25 @@ func (c *CalendarDB) GetEvents() {
 		err = dynamodbattribute.UnmarshalMap(i, &event)
 
 		if err != nil {
-			fmt.Printf("Got error unmarshalling upcoming events: %s\n", err)
-			return
+			return nil, err
 		}
-		// Print the name and date of each event
-		fmt.Printf("%s    %s\n", event.Date, event.EventName)
+		// parse the event date
+		eventDate, err := time.Parse(time.DateOnly, event.Date)
+		if err != nil {
+			return nil, err
+		}
+		// append event to slice if it is on or after the current date
+		if !eventDate.Before(currentDate) {
+			events = append(events, event)
+		}
 	}
+
+	// Sort the events by date
+	sort.Slice(events, func(i, j int) bool {
+		date1, _ := time.Parse(time.DateOnly, events[i].Date)
+		date2, _ := time.Parse(time.DateOnly, events[j].Date)
+		return date1.Before(date2)
+	})
+	//return the events slice
+	return events, nil
 }
