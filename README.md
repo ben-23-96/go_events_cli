@@ -1,6 +1,6 @@
 # Calendar and Event Search CLI
 
-This command-line tool allows you to manage calendar events and search for events using the Ticketmaster and Skiddle APIs while ensuring they don't clash with existing calendar events.
+This command-line tool allows you to manage calendar events and search for events using the Ticketmaster and Skiddle APIs while ensuring they don't clash with existing calendar events. Requires API keys for ticketmaster, skiddle and opencage set in .env file to work. ticketmasterAPIKey, skiddleAPIKey, opencageAPIKey.
 
 ## Usage
 ### Calendar
