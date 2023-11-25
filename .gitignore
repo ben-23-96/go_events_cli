@@ -1,3 +1,4 @@
 plan.txt
 .env
 eventsearch/getGenres.go
+database/calendar.db
