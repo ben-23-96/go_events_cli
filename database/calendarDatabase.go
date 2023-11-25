@@ -1,51 +1,72 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	_ "modernc.org/sqlite"
 )
 
 // CalendarEvent represents an event to be stored in the calendar.
 type CalendarEvent struct {
-	EventName string `json:"EventName"`
-	Date      string `json:"Date"`
+	EventName string
+	Date      string
 }
 
-// CalendarDB is a data structure that holds a reference to a DynamoDB client.
-type CalendarDB struct {
-	db *dynamodb.DynamoDB
-}
-
-/*
-initializes a new AWS session and creates a DynamoDB client.
-*/
-func (c *CalendarDB) NewSession() {
-	// Create a new AWS session
-	sess, err := session.NewSessionWithOptions(session.Options{
-		SharedConfigState: session.SharedConfigEnable,
-	})
-	// if error exit as cannot connect to dynamo db database
-	if err != nil {
-		log.Fatalf("Error creating session to connect to calendar db. Error: %s", err)
+// Initialize and establish a connection to the database
+func InitDB() (*sql.DB, error) {
+	dbFileName := "database/calendar.db"
+	// Check if the database file exists.
+	_, err := os.Stat(dbFileName)
+	if os.IsNotExist(err) {
+		// Database file does not exist, create it.
+		file, err := os.Create(dbFileName)
+		if err != nil {
+			log.Fatal(err)
+		}
+		file.Close()
 	}
-	// Create DynamoDB client
-	c.db = dynamodb.New(sess)
+
+	// Open the SQLite database file.
+	db, err := sql.Open("sqlite", dbFileName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+
+	// Ping the database to check if the connection is valid.
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %v", err)
+	}
+
+	// query to create the table if does not exist
+	query := `
+		CREATE TABLE IF NOT EXISTS CalendarEvents (
+			EventName TEXT,
+			Date TEXT
+		);
+	`
+	// execute the query
+	_, err = db.Exec(query)
+	if err != nil {
+		fmt.Printf("failed to create CalendarEvents table: %v", err)
+		return nil, err
+	}
+
+	fmt.Println("Connected to the database")
+	return db, nil
 }
 
 /*
-AddEvents adds a new event to the Calendar table in DynamoDB.
+AddEvents adds a new event to the CalendarEvents table in the sqlite database.
 Parameters:
 - events: a string of comma seperated event names followed by the date they are on. eg event name, date, event 2, date 2
 */
-func (c *CalendarDB) AddEvents(events string) {
+func AddEvents(db *sql.DB, events string) {
 	// split the string into list of names followed by dates
 	commaSplit := strings.Split(events, ", ")
 	// check an even number of items
@@ -55,97 +76,65 @@ func (c *CalendarDB) AddEvents(events string) {
 	}
 	// Process each event name and date pair
 	for i := 0; i < len(commaSplit); i += 2 {
-		// Create a CalendarEvent struct with the provided event name and date
-		event := CalendarEvent{
-			EventName: strings.TrimSpace(commaSplit[i]),
-			Date:      strings.TrimSpace(commaSplit[i+1]),
-		}
+		// get event name and event date
+		eventName := strings.TrimSpace(commaSplit[i])
+		eventDate := strings.TrimSpace(commaSplit[i+1])
 		// Parse the event date
-		date, err := time.Parse("2006-01-02", event.Date)
+		date, err := time.Parse("2006-01-02", eventDate)
 		if err != nil {
-			fmt.Printf("Event %s not added to calendar invalid date format %s: %s\n", event.EventName, event.Date, date)
+			fmt.Printf("Event %s not added to calendar invalid date format %s: %s\n", eventName, eventDate, date)
 			continue
 		}
-		// Marshal the event into a DynamoDB attribute value
-		av, err := dynamodbattribute.MarshalMap(event)
+		// query to insert event into table
+		query := "INSERT INTO CalendarEvents (EventName, Date) VALUES (?, ?)"
+		// execute the query
+		_, err = db.Exec(query, eventName, eventDate)
 		if err != nil {
-			fmt.Printf("Event %s not added to calendar. Got error marshalling event item: %s\n", event.EventName, err)
-			continue
-		}
-		// Create a PutItemInput with the marshaled item and the table name
-		input := &dynamodb.PutItemInput{
-			Item:      av,
-			TableName: aws.String("Calendar"),
-		}
-		// Put the item into the DynamoDB table
-		_, err = c.db.PutItem(input)
-		if err != nil {
-			fmt.Printf("Event %s not added to calendar. Got error calling PutItem: %s\n", event.EventName, err)
+			fmt.Printf("failed to add event to the database: %v", err)
 			continue
 		}
 
-		fmt.Printf("successfully added %s on %s to calender\n", event.EventName, event.Date)
+		fmt.Printf("successfully added %s on %s to calender\n", eventName, eventDate)
 	}
 }
 
 /*
-DeleteEvent deletes an event from the Calendar table in DynamoDB using the event name as the partiton key.
+DeleteEvent deletes an event from the CalendarEvents table using the event name.
 */
-func (c *CalendarDB) DeleteEvent(eventName string) {
-	// Create a DeleteItemInput to specify the key (EventName) of the item to delete
-	input := &dynamodb.DeleteItemInput{
-		Key: map[string]*dynamodb.AttributeValue{
-			"EventName": {
-				S: aws.String(eventName),
-			},
-		},
-		TableName: aws.String("Calendar"),
-	}
-	// Attempt to delete the item from the DynamoDB table
-	_, err := c.db.DeleteItem(input)
+func DeleteEvent(db *sql.DB, eventName string) {
+	// query to delete a event from the table using the events name
+	query := "DELETE FROM CalendarEvents WHERE EventName = ?"
+	// execute the query
+	_, err := db.Exec(query, eventName)
 	if err != nil {
-		fmt.Printf("Got error calling DeleteItem: %s\n", err)
+		fmt.Printf("failed to delete event from the database: %v", err)
 		return
 	}
 
-	fmt.Printf("Deleted %s from calendar\n", eventName)
+	fmt.Println("Event deleted successfully")
 }
 
 /*
-GetEvents retrieves and returns events on or after current date from the Calendar table in DynamoDB.
+GetEvents retrieves and returns events on or after current date from the CalendarEvents table.
 */
-func (c *CalendarDB) GetEvents() ([]CalendarEvent, error) {
-	// Perform a scan operation to retrieve all items from the Calendar table
-	result, err := c.db.Scan(&dynamodb.ScanInput{
-		TableName: aws.String("Calendar"),
-	})
-
+func GetEvents(db *sql.DB) ([]CalendarEvent, error) {
+	// query to return all events from the table
+	query := "SELECT EventName, Date FROM CalendarEvents"
+	// execute the query return the rows from table
+	rows, err := db.Query(query)
 	if err != nil {
-		fmt.Printf("Failed to fetch upcoming events from calendar: %s\n", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to query events from the database: %v", err)
 	}
-	// create slice of calendar event structs
-	events := []CalendarEvent{}
-
-	currentDate := time.Now().Truncate(24 * time.Hour)
-	// Iterate through the retrieved items and unmarshal them into CalendarEvent structs
-	for _, i := range result.Items {
-		event := CalendarEvent{}
-
-		err = dynamodbattribute.UnmarshalMap(i, &event)
-
+	defer rows.Close()
+	// for each returned row put data into a CalendarEvent struct and then append to the events slice
+	var events []CalendarEvent
+	for rows.Next() {
+		var event CalendarEvent
+		err := rows.Scan(&event.EventName, &event.Date)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan event row: %v", err)
 		}
-		// parse the event date
-		eventDate, err := time.Parse(time.DateOnly, event.Date)
-		if err != nil {
-			return nil, err
-		}
-		// append event to slice if it is on or after the current date
-		if !eventDate.Before(currentDate) {
-			events = append(events, event)
-		}
+		events = append(events, event)
 	}
 
 	// Sort the events by date
