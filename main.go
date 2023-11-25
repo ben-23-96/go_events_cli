@@ -71,25 +71,27 @@ func main() {
 Handles the calendar subcommand. Adds, deletes and displays events from the calendar. Calendar is a dynamodb table.
 */
 func handleCalendarCmd(newEvents string, deleteEvent string, displayUpcomingEvents bool) {
-	// Create a new instance of the CalendarDB struct
-	calendarDB := database.CalendarDB{}
+	db, err := database.InitDB()
 
-	// Initialize the AWS session and DynamoDB client
-	calendarDB.NewSession()
+	if err != nil {
+		fmt.Printf("error initializing database: %s", err)
+		return
+	}
+	defer db.Close()
 
 	// Check if new events were specified to be  add events
 	if newEvents != "" {
-		calendarDB.AddEvents(newEvents)
+		database.AddEvents(db, newEvents)
 	}
 
 	// Check if an event name was specified to be deleted delete event
 	if deleteEvent != "" {
-		calendarDB.DeleteEvent(deleteEvent)
+		database.DeleteEvent(db, deleteEvent)
 	}
 
 	// Check if the flag to display upcoming events is set then display the events
 	if displayUpcomingEvents {
-		events, err := calendarDB.GetEvents()
+		events, err := database.GetEvents(db)
 		if err != nil {
 			fmt.Printf("Error retrieving events from database. Err: %s\n", err)
 		}
@@ -104,15 +106,18 @@ func handleCalendarCmd(newEvents string, deleteEvent string, displayUpcomingEven
 Handles the search subcommand. Makes requests to the ticketmaster and skiddle API's searching for events using the paramters provided by the user in the CLI flags. Prints the found events in terminal checking if they do not clash with events in the calendar.
 */
 func handleSearchCmd(cities string, genres string, dateFromString string, dateToString string) {
-	// Create a new instance of the CalendarDB struct
-	calendarDB := database.CalendarDB{}
-	// Initialize the AWS session and DynamoDB client
-	calendarDB.NewSession()
+	db, err := database.InitDB()
+
+	if err != nil {
+		fmt.Printf("error initializing database: %s", err)
+	}
 	// get calendarEvents from calendar
-	calendarEvents, err := calendarDB.GetEvents()
+	var calendarEvents []database.CalendarEvent
+	calendarEvents, err = database.GetEvents(db)
 	if err != nil {
 		fmt.Printf("Error retrieving events from database. Err: %s\n", err)
 	}
+
 	// create new instance of api search struct with arguments
 	eventSearch := eventsearch.ApiSearch{
 		Cities:       cities,
